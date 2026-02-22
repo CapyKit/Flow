@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>flow — focus timer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display:ital@0;1&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,400&display=swap" rel="stylesheet">
+  <style>
+    /* ─── TOKENS ─── */
+    :root {
+      --bg:           #F2EDE4;
+      --bg-noise:     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      --surface:      #FFFDF8;
+      --surface2:     #EDE8DF;
+      --border:       rgba(28,28,20,0.1);
+      --text:         #1C1C14;
+      --text-muted:   #6B6659;
+      --text-faint:   #A8A296;
+      --accent:       #4A7C59;
+      --accent-soft:  rgba(74,124,89,0.12);
+      --accent-amber: #C9832A;
+      --accent-red:   #B8503A;
+      --ring-start:   #4A7C59;
+      --ring-mid:     #C9832A;
+      --ring-end:     #B8503A;
+      --shadow:       0 2px 20px rgba(28,28,20,0.07);
+      --shadow-lg:    0 8px 48px rgba(28,28,20,0.12);
+      --r:            22px;
+      --r-sm:         13px;
+      --ease:         cubic-bezier(0.4,0,0.2,1);
+    }
+    [data-theme="dark"] {
+      --bg:           #0E0D0B;
+      --surface:      #19180F;
+      --surface2:     #24231A;
+      --border:       rgba(242,237,228,0.12);
+      --text:         #F2EDE4;
+      --text-muted:   #C8C2B4;
+      --text-faint:   #8C8574;
+      --accent:       #6B9E78;
+      --accent-soft:  rgba(107,158,120,0.18);
+      --accent-amber: #D99B45;
+      --accent-red:   #C86A52;
+      --ring-start:   #6B9E78;
+      --ring-mid:     #D99B45;
+      --ring-end:     #C86A52;
+      --shadow:       0 2px 20px rgba(0,0,0,0.3);
+      --shadow-lg:    0 8px 48px rgba(0,0,0,0.5);
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      transition: background 0.4s var(--ease), color 0.4s var(--ease);
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* subtle grain layer */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: var(--bg-noise);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.6;
+    }
+
+    /* decorative blob */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.18;
+      pointer-events: none;
+      z-index: 0;
+      transition: background 0.6s var(--ease);
+    }
+    .blob-1 { width:320px; height:320px; background:var(--accent); top:-80px; right:-60px; }
+    .blob-2 { width:240px; height:240px; background:var(--accent-amber); bottom:-60px; left:-60px; }
+
+    .app {
+      width: 100%;
+      max-width: 430px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ─── TOP BAR ─── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding: 0 2px;
+    }
+    .logo {
+      font-family: 'DM Serif Display', serif;
+      font-size: 26px;
+      font-weight: 400;
+      letter-spacing: -0.3px;
+      color: var(--text);
+    }
+    .logo em { color: var(--accent); font-style: italic; }
+
+    .topbar-task-pill {
+      flex: 1;
+      text-align: center;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-muted);
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      margin: 0 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .topbar-task-pill.visible { opacity: 1; }
+
+    .theme-btn {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: var(--surface2);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted);
+      transition: all 0.2s var(--ease);
+      flex-shrink: 0;
+    }
+    .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .theme-btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ─── CARD ─── */
+    .card {
+      background: var(--surface);
+      border-radius: var(--r);
+      padding: 28px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      transition: background 0.4s var(--ease), border-color 0.4s var(--ease), box-shadow 0.4s var(--ease);
+    }
+
+    /* ─── SCREENS ─── */
+    .screen { display: none; }
+    .screen.active {
+      display: block;
+      animation: fadeUp 0.45s var(--ease) forwards;
+    }
+    @keyframes fadeUp {
+      from { opacity:0; transform:translateY(14px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+
+    /* ─── SHARED ─── */
+    .label {
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      display: block;
+      margin-bottom: 10px;
+    }
+
+    /* ─── SETUP SCREEN ─── */
+
+    .task-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 13px 15px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14.5px;
+      color: var(--text);
+      outline: none;
+      resize: none;
+      transition: border-color 0.25s var(--ease), background 0.3s var(--ease);
+      line-height: 1.5;
+    }
+    .task-input::placeholder { color: var(--text-faint); }
+    .task-input:focus {
+      border-color: var(--accent);
+      background: var(--surface);
+    }
+
+    .char-hint {
+      font-size: 11px;
+      color: var(--text-faint);
+      text-align: right;
+      margin-top: 5px;
+      margin-bottom: 18px;
+    }
+
+    .effort-grid {
+      display: grid;
+      grid-template-columns: repeat(3,1fr);
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+    .effort-btn {
+      padding: 14px 8px 12px;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.25s var(--ease);
+    }
+    .effort-btn:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .effort-btn.selected {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .effort-icon { font-size: 20px; display: block; margin-bottom: 7px; }
+    .effort-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+      display: block;
+      margin-bottom: 2px;
+    }
+    .effort-mins {
+      font-size: 11px;
+      color: var(--text-faint);
+      display: block;
+    }
+
+    .start-btn {
+      width: 100%;
+      padding: 15px;
+      background: var(--accent);
+      color: #FFFDF8;
+      border: none;
+      border-radius: var(--r-sm);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s var(--ease);
+      letter-spacing: -0.1px;
+    }
+    .start-btn:hover:not(:disabled) {
+      opacity: 0.88;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(74,124,89,0.32);
+    }
+    .start-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+
+    /* history strip */
+    .history-strip {
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+    }
+    .history-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .h-rows-container { display: flex; flex-direction: column; gap: 6px; }
+    .h-icon { font-size: 14px; flex-shrink: 0; }
+    .h-meta { flex: 1; min-width: 0; }
+    .h-mins { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: -0.3px; }
+    .h-effort { font-size: 10.5px; color: var(--text-faint); font-weight: 500; text-transform: capitalize; margin-left: 5px; }
+    .h-status { font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; flex-shrink: 0; }
+    .h-status.done { color: var(--accent); background: var(--accent-soft); }
+    .h-status.abandoned { color: var(--text-faint); background: var(--surface); }
+    .h-total-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .h-total-label { font-size: 11px; color: var(--text-faint); font-weight: 500; }
+    .h-total-val { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: -0.3px; }
+    .h-show-more {
+      background: none; border: none;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11.5px; color: var(--text-faint);
+      cursor: pointer; padding: 6px 0 0;
+      display: block; width: 100%; text-align: center;
+      transition: color 0.2s var(--ease);
+      letter-spacing: 0.2px;
+    }
+
+    .h-row {
+      display: flex;
+      flex-direction: column;
+      background: var(--surface2);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: background 0.2s var(--ease);
+      cursor: pointer;
+    }
+    .h-row-main {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+    }
+    .h-row.abandoned { opacity: 0.55; }
+    .h-drawer {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1);
+    }
+    .h-drawer.open { max-height: 200px; }
+    .h-drawer-inner {
+      padding: 0 12px 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+    .h-task-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--text-faint);
+      margin-bottom: 4px;
+    }
+    .h-task-text {
+      font-size: 12.5px; color: var(--text); font-weight: 500;
+      margin-bottom: 10px; line-height: 1.4;
+    }
+    .h-reflect-q {
+      font-size: 10px; color: var(--text-faint);
+      font-weight: 600; letter-spacing: 0.8px;
+      text-transform: uppercase; margin-bottom: 6px;
+    }
+    .h-reflect-tags {
+      display: flex; flex-wrap: wrap; gap: 5px;
+    }
+    .h-reflect-tag {
+      font-size: 11px; font-weight: 500;
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 9px;
+    }
+    .h-chevron {
+      font-size: 10px; color: var(--text-faint);
+      margin-left: auto; flex-shrink: 0;
+      transition: transform 0.3s var(--ease);
+    }
+    .h-row.expanded .h-chevron { transform: rotate(180deg); }
+
+    /* ─── TIMER SCREEN ─── */
+    .timer-inner { text-align: center; }
+    .timer-task-box {
+      display: inline-block;
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      padding: 7px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+      line-height: 1.4;
+      background: transparent;
+    }
+
+    .task-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      border-radius: 20px;
+      padding: 5px 13px 5px 9px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--accent);
+      margin-bottom: 26px;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .task-chip-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .live-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      animation: livePulse 1.8s ease-in-out infinite;
+    }
+    @keyframes livePulse {
+      0%,100% { opacity:1; transform:scale(1); }
+      50%      { opacity:0.35; transform:scale(0.7); }
+    }
+
+    /* Ring */
+    .ring-wrap {
+      position: relative;
+      width: 240px; height: 240px;
+      margin: 0 auto 26px;
+    }
+    .ring-svg { width: 240px; height: 240px; transform: rotate(-90deg); }
+    .ring-track { fill:none; stroke:var(--surface2); stroke-width:5; }
+    .ring-fill  { fill:none; stroke-width:5; stroke-linecap:round; stroke: var(--ring-start); transition: stroke-dashoffset 1s linear, stroke 1.2s ease; }
+    .ring-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .ring-task {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-faint);
+      letter-spacing: 0.2px;
+      margin-top: 12px;
+      max-width: 140px;
+      text-align: center;
+      line-height: 1.3;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .big-time {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 55px;
+      font-weight: 300;
+      letter-spacing: 4px;
+      line-height: 1;
+      color: var(--text);
+      transition: color 0.5s ease;
+    }
+    .phase-label {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      margin-top: 5px;
+      transition: color 0.5s ease;
+    }
+
+    /* Controls */
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .ctrl {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: var(--surface2);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+      color: var(--text-muted);
+      transition: all 0.2s var(--ease);
+    }
+    .ctrl:hover { border-color: var(--accent); color: var(--accent); transform: scale(1.06); }
+    .ctrl.main {
+      width: 62px; height: 62px;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #FFFDF8;
+      font-size: 20px;
+      box-shadow: 0 4px 22px rgba(74,124,89,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .ctrl.main:hover { opacity: 0.88; transform: scale(1.06); }
+
+    /* motivational strip */
+    .motive-strip {
+      padding: 11px 16px;
+      border-radius: var(--r-sm);
+      background: var(--surface2);
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-muted);
+      font-style: italic;
+      text-align: center;
+      margin-bottom: 14px;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.6s ease;
+      line-height: 1.5;
+    }
+
+    .abandon-link {
+      background: none; border: none;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px; color: var(--text-faint);
+      cursor: pointer; text-decoration: underline;
+      text-decoration-color: transparent;
+      text-underline-offset: 3px;
+      transition: all 0.2s var(--ease);
+    }
+    .abandon-link:hover { color: var(--accent-red); text-decoration-color: var(--accent-red); }
+
+    /* ─── OVERLAYS ─── */
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(14,13,11,0.55);
+      backdrop-filter: blur(10px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100; padding: 20px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s var(--ease);
+    }
+    .overlay.show { opacity:1; pointer-events:all; }
+
+    .modal {
+      background: var(--surface);
+      border-radius: var(--r);
+      padding: 30px;
+      width: 100%; max-width: 360px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-lg);
+      transform: scale(0.94);
+      transition: transform 0.3s var(--ease);
+    }
+    .overlay.show .modal { transform: scale(1); }
+
+    .modal-icon { font-size: 42px; margin-bottom: 14px; display: block; text-align: center; }
+    .modal h3 {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 22px; font-weight: 700;
+      letter-spacing: -0.5px; text-align: center;
+      margin-bottom: 8px;
+    }
+    .modal p {
+      font-size: 13.5px; color: var(--text-muted);
+      line-height: 1.65; text-align: center; margin-bottom: 20px;
+    }
+    .modal-task-badge {
+      background: var(--accent-soft);
+      border-radius: 10px;
+      padding: 9px 13px;
+      font-size: 12.5px; font-weight: 500;
+      color: var(--accent);
+      margin-bottom: 22px; text-align: center;
+    }
+    .modal-btns { display: flex; gap: 10px; }
+    .mbtn {
+      flex: 1; padding: 13px;
+      border-radius: var(--r-sm);
+      border: 1.5px solid var(--border);
+      background: var(--surface2);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13.5px; font-weight: 600;
+      cursor: pointer; color: var(--text);
+      transition: all 0.2s var(--ease);
+    }
+    .mbtn:hover { border-color: var(--accent); }
+    .mbtn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #FFFDF8;
+    }
+    .mbtn.primary:hover { opacity: 0.88; }
+
+    /* ─── BRAIN DUMP PANEL ─── */
+    .panel-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(14,13,11,0.45);
+      z-index: 150;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s var(--ease);
+    }
+    .panel-backdrop.show { opacity:1; pointer-events:all; }
+
+    .dump-panel {
+      position: fixed;
+      bottom: -100%; left: 50%;
+      transform: translateX(-50%);
+      width: 100%; max-width: 430px;
+      background: var(--surface);
+      border-radius: var(--r) var(--r) 0 0;
+      padding: 20px 24px 28px;
+      border: 1px solid var(--border);
+      border-bottom: none;
+      box-shadow: var(--shadow-lg);
+      z-index: 151;
+      transition: bottom 0.42s cubic-bezier(0.3,0,0.2,1);
+    }
+    .dump-panel.open { bottom: 0; }
+    .panel-bar { width: 34px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 18px; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .panel-head h4 { font-size: 15px; font-weight: 600; }
+    .panel-x {
+      width: 30px; height: 30px;
+      border-radius: 50%; border: 1px solid var(--border);
+      background: var(--surface2);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: var(--text-muted);
+      transition: all 0.2s var(--ease);
+    }
+    .panel-x:hover { color: var(--text); }
+    .dump-textarea {
+      width: 100%; height: 82px;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 11px 13px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13.5px; color: var(--text);
+      outline: none; resize: none;
+      transition: border-color 0.2s var(--ease);
+      margin-bottom: 10px;
+    }
+    .dump-textarea::placeholder { color: var(--text-faint); }
+    .dump-textarea:focus { border-color: var(--accent); }
+    .dump-save {
+      width: 100%; padding: 12px;
+      background: var(--accent); color: #FFFDF8;
+      border: none; border-radius: var(--r-sm);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13.5px; font-weight: 600;
+      cursor: pointer; margin-bottom: 14px;
+      transition: opacity 0.2s var(--ease);
+    }
+    .dump-save:hover { opacity: 0.88; }
+    .dump-notes { display: flex; flex-direction: column; gap: 7px; max-height: 140px; overflow-y: auto; }
+    .dnote {
+      display: flex; align-items: flex-start; gap: 9px;
+      background: var(--surface2);
+      border-radius: 10px; padding: 9px 11px;
+      font-size: 12.5px; color: var(--text); line-height: 1.5;
+    }
+    .dnote-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); margin-top: 5px; flex-shrink: 0; }
+
+    /* ─── COMPLETE SCREEN ─── */
+    .complete-inner { text-align: center; }
+    .complete-big { font-size: 50px; margin-bottom: 10px; }
+    .complete-title {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 26px; font-weight: 700;
+      letter-spacing: -0.8px; margin-bottom: 6px;
+    }
+    .complete-sub { font-size: 13.5px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.55; }
+
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(3,1fr);
+      gap: 10px; margin-bottom: 20px;
+    }
+    .stat {
+      background: var(--surface2);
+      border-radius: var(--r-sm);
+      padding: 14px 8px;
+    }
+    .stat-val {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 30px; font-weight: 700;
+      color: var(--accent); letter-spacing: -1.5px;
+      line-height: 1;
+    }
+    .stat-lbl { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; color: var(--text-faint); margin-top: 5px; }
+
+    .reflect-box {
+      background: var(--surface2);
+      border-radius: var(--r-sm);
+      padding: 16px;
+      margin-bottom: 14px;
+      text-align: left;
+    }
+    .reflect-q { font-size: 13.5px; font-weight: 600; margin-bottom: 11px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      padding: 6px 13px;
+      border-radius: 20px;
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      font-size: 12.5px; font-weight: 500;
+      cursor: pointer; color: var(--text);
+      transition: all 0.2s var(--ease);
+    }
+    .chip:hover, .chip.on {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .dump-review {
+      background: var(--surface2);
+      border-radius: var(--r-sm);
+      padding: 14px;
+      margin-bottom: 16px;
+      text-align: left;
+    }
+    .dump-review-title { font-size: 10.5px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px; }
+
+    .next-btn {
+      width: 100%; padding: 15px;
+      background: var(--accent); color: #FFFDF8;
+      border: none; border-radius: var(--r-sm);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px; font-weight: 600;
+      cursor: pointer; letter-spacing: -0.1px;
+      transition: all 0.25s var(--ease);
+    }
+    .next-btn:hover { opacity: 0.88; transform: translateY(-2px); box-shadow: 0 8px 28px rgba(74,124,89,0.3); }
+
+    /* divider */
+    .divider { height: 1px; background: var(--border); margin: 18px 0; }
+
+    /* confetti canvas */
+    #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 999; }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* ring color states */
+    .ring-fill.amber { stroke: var(--ring-mid); }
+    .ring-fill.red   { stroke: var(--ring-end); }
+
+    @keyframes subtlePop {
+      0%   { transform: scale(0.92); opacity: 0; }
+      60%  { transform: scale(1.04); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .pop { animation: subtlePop 0.5s var(--ease) forwards; }
+  </style>
+</head>
+<body>
+  <canvas id="confetti"></canvas>
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+
+  <div class="app">
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="logo">flow<em>.</em></div>
+      <div class="topbar-task-pill" id="topbarTask"></div>
+      <div class="topbar-right" style="flex-shrink:0">
+      <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle dark mode">
+        <svg id="themeIcon" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="4"/>
+          <line x1="12" y1="2" x2="12" y2="5"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/>
+          <line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/>
+          <line x1="2" y1="12" x2="5" y2="12"/>
+          <line x1="19" y1="12" x2="22" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/>
+          <line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/>
+        </svg>
+      </button>
+      </div>
+    </div>
+
+    <!-- ══ SETUP SCREEN ══ -->
+    <div id="setupScreen" class="card screen active">
+
+      <label class="label">Your focus task</label>
+      <textarea class="task-input" id="taskInput" rows="2"
+        placeholder="e.g. Reply to 3 emails and clear my inbox…"
+        oninput="onTaskInput(this)"></textarea>
+      <div class="char-hint" id="charHint">Be specific — avoid vague goals like "do work"</div>
+
+      <label class="label">Pick your mode</label>
+      <div class="effort-grid">
+        <div class="effort-btn" id="e-light" onclick="pickEffort('light',this)">
+          <span class="effort-icon">🌱</span>
+          <span class="effort-name">Warm up</span>
+          <span class="effort-mins">15 min</span>
+        </div>
+        <div class="effort-btn selected" id="e-medium" onclick="pickEffort('medium',this)">
+          <span class="effort-icon">⚡</span>
+          <span class="effort-name">Flow</span>
+          <span class="effort-mins">30 min</span>
+        </div>
+        <div class="effort-btn" id="e-deep" onclick="pickEffort('deep',this)">
+          <span class="effort-icon">🔥</span>
+          <span class="effort-name">Deep work</span>
+          <span class="effort-mins">60 min</span>
+        </div>
+      </div>
+
+      <button class="start-btn" id="startBtn" disabled onclick="startSession()">
+        Begin session →
+      </button>
+
+      <div class="history-strip" id="historyStrip" style="display:none">
+        <label class="label" style="margin-bottom:10px">recent sessions</label>
+        <div class="history-rows" id="historyDots"></div>
+      </div>
+    </div>
+
+    <!-- ══ TIMER SCREEN ══ -->
+    <div id="timerScreen" class="card screen">
+      <div class="timer-inner">
+
+        <div class="ring-wrap">
+          <svg class="ring-svg" viewBox="0 0 240 240">
+            <circle class="ring-track" cx="120" cy="120" r="108"/>
+            <circle class="ring-fill" id="ringFill" cx="120" cy="120" r="108"/>
+          </svg>
+          <div class="ring-center">
+            <div class="big-time" id="bigTime">25:00</div>
+            <div class="ring-task" id="ringTask"></div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button class="ctrl" onclick="doRestart()" title="Restart">↺</button>
+          <button class="ctrl main" id="ppBtn" onclick="togglePause()">⏸</button>
+          <button class="ctrl" onclick="openDump()" title="Brain dump">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="motive-strip" id="motiveStrip"></div>
+
+        <button class="abandon-link" onclick="showAbandon()">end session early</button>
+      </div>
+    </div>
+
+    <!-- ══ COMPLETE SCREEN ══ -->
+    <div id="completeScreen" class="card screen">
+      <div class="complete-inner">
+        <div class="complete-big" id="completeEmoji">✨</div>
+        <div class="complete-title" id="completeTitle">Session complete</div>
+        <div class="complete-sub" id="completeSub">You showed up. That's the whole thing.</div>
+
+        <div class="stats-grid">
+          <div class="stat pop">
+            <div class="stat-val" id="sTime">—</div>
+            <div class="stat-lbl">focused</div>
+          </div>
+          <div class="stat pop" style="animation-delay:0.08s">
+            <div class="stat-val" id="sStreak">—</div>
+            <div class="stat-lbl">streak</div>
+          </div>
+          <div class="stat pop" style="animation-delay:0.16s">
+            <div class="stat-val" id="sTotal">—</div>
+            <div class="stat-lbl">all time</div>
+          </div>
+        </div>
+
+        <div class="reflect-box">
+          <div class="reflect-q" id="reflectQ">What helped you focus?</div>
+          <div class="chips" id="reflectChips"></div>
+        </div>
+
+        <div class="dump-review" id="dumpReview" style="display:none">
+          <div class="dump-review-title">Brain dump — triage these later 📌</div>
+          <div class="dump-notes" id="dumpReviewList"></div>
+        </div>
+
+        <button class="next-btn" onclick="newSession()">Start another session →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CHECK-IN OVERLAY ══ -->
+  <div class="overlay" id="checkinOverlay">
+    <div class="modal">
+      <span class="modal-icon">👀</span>
+      <h3>Still here?</h3>
+      <p>Halfway check-in. No pressure, just a gentle nudge to re-anchor.</p>
+      <div class="modal-btns">
+        <button class="mbtn" onclick="doCheckin(false)">I drifted 🌊</button>
+        <button class="mbtn primary" onclick="doCheckin(true)">Still on it ✓</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ ABANDON OVERLAY ══ -->
+  <div class="overlay" id="abandonOverlay">
+    <div class="modal">
+      <span class="modal-icon" id="abandonIcon">🌿</span>
+      <h3 id="abandonTitle">That's okay.</h3>
+      <p id="abandonBody">Stopping early isn't failure. You started — that counts. What do you want to do?</p>
+      <div class="modal-btns">
+        <button class="mbtn primary" onclick="doResume()">Keep going</button>
+        <button class="mbtn" onclick="doAbandon()" style="color:var(--text-faint)">Wrap it up</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ BRAIN DUMP PANEL ══ -->
+  <div class="panel-backdrop" id="dumpBackdrop" onclick="closeDump()"></div>
+  <div class="dump-panel" id="dumpPanel">
+    <div class="panel-bar"></div>
+    <div class="panel-head">
+      <h4>Brain dump ✍🏻</h4>
+      <button class="panel-x" onclick="closeDump()">✕</button>
+    </div>
+    <textarea class="dump-textarea" id="dumpInput"
+      placeholder="Jot down any distracting or intrusive thoughts…"></textarea>
+    <button class="dump-save" onclick="saveNote()">Save & get back to work</button>
+    <div class="dump-notes" id="dumpNotesList"></div>
+  </div>
+
+  <script>
+  // ──────────────────────────────────────────────
+  //  STATE
+  // ──────────────────────────────────────────────
+  const DURATIONS = { light: 15*60, medium: 30*60, deep: 60*60 }
+  const CIRCUMFERENCE = 2 * Math.PI * 108
+
+  let s = {
+    effort: 'medium',
+    task: '',
+    totalTime: 25*60,
+    timeLeft: 25*60,
+    paused: false,
+    checkinDone: false,
+    notes: [],
+    sessions: JSON.parse(localStorage.getItem('flo_sessions') || '[]'),
+    ticker: null,
+  }
+
+  // ring setup
+  const ring = document.getElementById('ringFill')
+  ring.style.strokeDasharray = CIRCUMFERENCE
+  ring.style.strokeDashoffset = 0
+
+  // ──────────────────────────────────────────────
+  //  THEME
+  // ──────────────────────────────────────────────
+  const SUN_SVG = '<circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/>'
+  const MOON_SVG = '<path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>'
+
+  function setThemeIcon(theme) {
+    const icon = document.getElementById('themeIcon')
+    if (icon) icon.innerHTML = theme === 'dark' ? SUN_SVG : MOON_SVG
+  }
+
+  function toggleTheme() {
+    const html = document.documentElement
+    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
+    html.setAttribute('data-theme', next)
+    localStorage.setItem('flo_theme', next)
+    setThemeIcon(next)
+  }
+  ;(function initTheme() {
+    const t = localStorage.getItem('flo_theme') || 'light'
+    document.documentElement.setAttribute('data-theme', t)
+    setThemeIcon(t)
+  })()
+
+  // ──────────────────────────────────────────────
+  //  SETUP
+  // ──────────────────────────────────────────────
+  function onTaskInput(el) {
+    s.task = el.value.trim()
+    const len = s.task.length
+    const hint = document.getElementById('charHint')
+    if (len === 0) hint.textContent = 'Be specific — avoid vague goals like "do work"'
+    else if (len < 10) hint.textContent = 'A little more detail helps your brain commit 🎯'
+    else hint.textContent = '✓ Good — that\'s a real task'
+    document.getElementById('startBtn').disabled = len < 3
+  }
+
+  function pickEffort(level, el) {
+    document.querySelectorAll('.effort-btn').forEach(b => b.classList.remove('selected'))
+    el.classList.add('selected')
+    s.effort = level
+  }
+
+  function startSession() {
+    s.task = document.getElementById('taskInput').value.trim()
+    s.totalTime = DURATIONS[s.effort]
+    s.timeLeft = s.totalTime
+    s.paused = false
+    s.checkinDone = false
+    s.notes = []
+    document.getElementById('dumpNotesList').innerHTML = ''
+    document.getElementById('dumpInput').value = ''
+    document.getElementById('ppBtn').textContent = '⏸'
+
+    document.getElementById('ringTask').textContent = s.task
+
+    updateDisplay()
+    updateRing()
+    showScreen('timerScreen')
+    lastMotiveKey = null
+    lastMotiveIdx = -1
+    updateMotive()
+    s.ticker = setInterval(tick, 1000)
+  }
+
+  // ──────────────────────────────────────────────
+  //  TIMER
+  // ──────────────────────────────────────────────
+  function tick() {
+    if (s.paused) return
+    s.timeLeft--
+    const half = Math.floor(s.totalTime / 2)
+    if (s.timeLeft === half && !s.checkinDone) showOverlay('checkinOverlay')
+    updateDisplay()
+    updateRing()
+    updateMotive()
+    if (s.timeLeft <= 0) { clearInterval(s.ticker); completeSession(true) }
+  }
+
+  function updateDisplay() {
+    const m = Math.floor(s.timeLeft / 60)
+    const sec = s.timeLeft % 60
+    document.getElementById('bigTime').textContent = `${m}:${sec.toString().padStart(2,'0')}`
+  }
+
+  function updateRing() {
+    const pct = s.timeLeft / s.totalTime
+    ring.style.strokeDashoffset = CIRCUMFERENCE * (1 - pct)
+    ring.className = 'ring-fill'
+    if (pct < 0.2)  ring.classList.add('red')
+    else if (pct < 0.5) ring.classList.add('amber')
+  }
+
+  function togglePause() {
+    s.paused = !s.paused
+    document.getElementById('ppBtn').textContent = s.paused ? '▶' : '⏸'
+    updateDisplay()
+  }
+
+  function doRestart() {
+    clearInterval(s.ticker)
+    s.timeLeft = s.totalTime
+    s.paused = false
+    s.checkinDone = false
+    document.getElementById('ppBtn').textContent = '⏸'
+    updateDisplay(); updateRing()
+    s.ticker = setInterval(tick, 1000)
+  }
+
+  // ──────────────────────────────────────────────
+  //  MOTIVATIONAL STRIP
+  // ──────────────────────────────────────────────
+  const MOTIVES = {
+    start: [
+      "You started. That's already the hardest part.",
+      "One focused block at a time. You've got this.",
+      "Your future self is cheering you on right now.",
+      "Distractions can wait. This can't.",
+    ],
+    early: [
+      "Momentum is building. Stay with it.",
+      "Every minute here is a minute well spent.",
+      "You're doing the thing. Keep going.",
+      "Resistance fades right before flow hits.",
+    ],
+    mid: [
+      "You're in it now. The hard part is behind you.",
+      "Halfway there — this is where it counts.",
+      "Flow state is just around the corner.",
+      "Your brain is warming up. Keep going.",
+    ],
+    late: [
+      "The finish line is close. Don't look back.",
+      "You've done most of the work. Finish strong.",
+      "Almost there. Push through.",
+      "This is the last stretch. Make it count.",
+    ],
+    final: [
+      "Seconds left. You're basically done. 🔥",
+      "Final push — finish what you started.",
+      "So close. Stay locked in.",
+      "Don't stop now. Nearly there.",
+    ],
+  }
+
+  let lastMotiveKey = null
+  let lastMotiveIdx = -1
+
+  function updateMotive() {
+    const pct = s.timeLeft / s.totalTime
+    let key = 'start'
+    if (pct < 0.1)       key = 'final'
+    else if (pct < 0.3)  key = 'late'
+    else if (pct < 0.55) key = 'mid'
+    else if (pct < 0.8)  key = 'early'
+
+    if (key !== lastMotiveKey) {
+      const pool = MOTIVES[key]
+      let idx
+      do { idx = Math.floor(Math.random() * pool.length) } while (idx === lastMotiveIdx && pool.length > 1)
+      lastMotiveKey = key
+      lastMotiveIdx = idx
+      const el = document.getElementById('motiveStrip')
+      el.style.opacity = '0'
+      setTimeout(() => { el.textContent = pool[idx]; el.style.opacity = '1' }, 300)
+    }
+  }
+  function doCheckin(onTrack) {
+    hideOverlay('checkinOverlay')
+    s.checkinDone = true
+    s.paused = false
+    document.getElementById('ppBtn').textContent = '⏸'
+    if (!onTrack) {
+      document.getElementById('phaseLabel').textContent = 'refocusing…'
+      setTimeout(updateDisplay, 2500)
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  //  BRAIN DUMP
+  // ──────────────────────────────────────────────
+  function openDump() {
+    document.getElementById('dumpPanel').classList.add('open')
+    document.getElementById('dumpBackdrop').classList.add('show')
+    if (!s.paused) { s.paused = true; document.getElementById('ppBtn').textContent = '▶'; updateDisplay() }
+    setTimeout(() => document.getElementById('dumpInput').focus(), 420)
+  }
+  function closeDump() {
+    document.getElementById('dumpPanel').classList.remove('open')
+    document.getElementById('dumpBackdrop').classList.remove('show')
+    s.paused = false
+    document.getElementById('ppBtn').textContent = '⏸'
+    updateDisplay()
+  }
+  function saveNote() {
+    const v = document.getElementById('dumpInput').value.trim()
+    if (!v) return
+    s.notes.push(v)
+    document.getElementById('dumpInput').value = ''
+    renderDumpNotes()
+    closeDump()
+  }
+  function renderDumpNotes() {
+    document.getElementById('dumpNotesList').innerHTML =
+      s.notes.map(n => `<div class="dnote"><div class="dnote-dot"></div><span>${escHtml(n)}</span></div>`).join('')
+  }
+
+  // ──────────────────────────────────────────────
+  //  ABANDON
+  // ──────────────────────────────────────────────
+  const ABANDON_VARIANTS = [
+    { icon: '🌿', title: "That's okay.", body: "Stopping early isn't failure. You started — that counts." },
+    { icon: '🌱', title: "Almost there.", body: "You've come this far. A few more minutes and you're done — you've got it in you." },
+    { icon: '💛', title: "Take a breath.", body: "Sometimes the hardest part is staying. You don't have to be perfect, just present." },
+    { icon: '🍃', title: "You started. That matters.", body: "Every focused minute adds up — even the partial ones. What do you want to do?" },
+    { icon: '✨', title: "One more push?", body: "You're closer to the finish than the start. Future you will be glad you stayed." },
+  ]
+
+  function showAbandon() {
+    s.paused = true
+    updateDisplay()
+    const v = ABANDON_VARIANTS[Math.floor(Math.random() * ABANDON_VARIANTS.length)]
+    document.getElementById('abandonIcon').textContent = v.icon
+    document.getElementById('abandonTitle').textContent = v.title
+    document.getElementById('abandonBody').textContent = v.body
+    showOverlay('abandonOverlay')
+  }
+  function doResume() { hideOverlay('abandonOverlay'); s.paused = false; updateDisplay() }
+  function doAbandon() {
+    hideOverlay('abandonOverlay')
+    clearInterval(s.ticker)
+    saveSessionData(false, s.totalTime - s.timeLeft)
+    completeSession(false)
+  }
+
+  // ──────────────────────────────────────────────
+  //  COMPLETE
+  // ──────────────────────────────────────────────
+  const REFLECTIONS = [
+    { q: 'What helped you focus?',
+      opts: ['Silence 🤫','Music 🎵','Clear goal 🎯','Good timing ⏱️','Caffeine ☕','Low pressure 😮‍💨','Body doubling 👥','No phone 📵','Fresh air 🌿','Flow state 🌊'] },
+    { q: 'How did you feel going in?',
+      opts: ['Motivated 🚀','Meh 😐','Resistant 😩','Calm 😌','Wired ⚡','Anxious 😬','Scattered 🌀','Rested 😴','Rushed ⏩','Curious 🔍'] },
+    { q: 'What could improve next session?',
+      opts: ['Less phone 📵','Shorter timer ⏱️','Clearer task 🎯','Better timing 🕐','Fewer interruptions 🚪','Headphones 🎧','Snack first 🍎','Move my body 🚶','Nothing 🙌','Earlier in day ☀️'] },
+    { q: 'Energy after the session?',
+      opts: ['Energized ⚡','Drained 🥱','Same 🤷','Proud 🌟','Ready for more 🔥','Relieved 😮‍💨','Restless 🦋','Accomplished ✅','Need a break 🛑','In the zone 🎯'] },
+  ]
+
+  function completeSession(completed) {
+    clearInterval(s.ticker)
+    if (completed) saveSessionData(true, s.totalTime)
+
+    const elapsed = completed ? s.totalTime : (s.totalTime - s.timeLeft)
+    const mins = Math.max(1, Math.round(elapsed / 60))
+
+    document.getElementById('completeEmoji').textContent = completed ? '✨' : '🌿'
+    document.getElementById('completeTitle').textContent = completed ? 'Session complete' : 'Stopped early — still counts'
+    document.getElementById('completeSub').textContent = completed
+      ? "You showed up. That's the whole thing."
+      : "A partial session still moves you forward."
+
+    document.getElementById('sTime').textContent = mins + 'm'
+    document.getElementById('sStreak').textContent = getStreak()
+    document.getElementById('sTotal').textContent = s.sessions.length
+
+    // Reflection
+    const r = REFLECTIONS[Math.floor(Math.random() * REFLECTIONS.length)]
+    document.getElementById('reflectQ').textContent = r.q
+    document.getElementById('reflectChips').innerHTML = r.opts.map(o =>
+      `<span class="chip" onclick="pickChip(this)">${o}</span>`).join('')
+
+    // Brain dump review
+    if (s.notes.length > 0) {
+      document.getElementById('dumpReview').style.display = 'block'
+      document.getElementById('dumpReviewList').innerHTML =
+        s.notes.map(n => `<div class="dnote"><div class="dnote-dot"></div><span>${escHtml(n)}</span></div>`).join('')
+    } else {
+      document.getElementById('dumpReview').style.display = 'none'
+    }
+
+    showScreen('completeScreen')
+    renderHistoryStrip()
+    if (completed) launchConfetti()
+  }
+
+  function pickChip(el) {
+    el.classList.toggle('on')
+  }
+
+  // ──────────────────────────────────────────────
+  //  HISTORY
+  // ──────────────────────────────────────────────
+  function saveSessionData(completed, elapsed, reflection) {
+    s.sessions.push({ completed, effort: s.effort, elapsed, ts: Date.now(), task: s.task, reflection: reflection || null })
+    localStorage.setItem('flo_sessions', JSON.stringify(s.sessions))
+  }
+
+  function getStreak() {
+    let streak = 0
+    for (let i = s.sessions.length - 1; i >= 0; i--) {
+      if (s.sessions[i].completed) streak++
+      else break
+    }
+    return streak
+  }
+
+  function toggleHistoryRow(idx) {
+    const row = document.getElementById(`hrow-${idx}`)
+    const drawer = document.getElementById(`hdrawer-${idx}`)
+    if (!row || !drawer) return
+    const isOpen = drawer.classList.contains('open')
+    drawer.classList.toggle('open', !isOpen)
+    row.classList.toggle('expanded', !isOpen)
+  }
+
+  function renderHistoryStrip(showAll) {
+    if (s.sessions.length === 0) return
+    document.getElementById('historyStrip').style.display = 'block'
+    const dots = document.getElementById('historyDots')
+    const all = s.sessions.slice().reverse()
+    const limit = showAll ? all.length : 2
+    const visible = all.slice(0, limit)
+    const effortLabel = { light: 'Warm up', medium: 'Flow', deep: 'Deep work' }
+    const effortEmoji = { light: '🌱', medium: '⚡', deep: '🔥' }
+
+    let html = ''
+    for (let i = 0; i < visible.length; i++) {
+      const se = visible[i]
+      const mins = Math.max(1, Math.round((se.elapsed || 0) / 60))
+      const mode = effortLabel[se.effort] || se.effort || ''
+      const icon = effortEmoji[se.effort] || '⏱️'
+      const statusClass = se.completed ? 'done' : 'abandoned'
+      const statusText = se.completed ? 'completed' : 'ended early'
+
+      const taskHtml = se.task
+        ? '<div class="h-task-label">Focus task</div><div class="h-task-text">' + escHtml(se.task) + '</div>'
+        : ''
+
+      let reflectHtml = ''
+      if (se.reflection && se.reflection.picks && se.reflection.picks.length) {
+        let tags = ''
+        for (let j = 0; j < se.reflection.picks.length; j++) {
+          tags += '<span class="h-reflect-tag">' + escHtml(se.reflection.picks[j]) + '</span>'
+        }
+        reflectHtml = '<div class="h-reflect-q">' + escHtml(se.reflection.q) + '</div><div class="h-reflect-tags">' + tags + '</div>'
+      }
+
+      const hasDetail = se.task || reflectHtml
+      const rowClass = 'h-row' + (se.completed ? '' : ' abandoned') + (hasDetail ? '' : '')
+      const clickAttr = hasDetail ? ' onclick="toggleHistoryRow(' + i + ')"' : ''
+      const chevron = hasDetail ? '<span class="h-chevron">▼</span>' : ''
+      const drawer = hasDetail
+        ? '<div class="h-drawer" id="hdrawer-' + i + '"><div class="h-drawer-inner">' + taskHtml + reflectHtml + '</div></div>'
+        : ''
+
+      html += '<div class="' + rowClass + '" id="hrow-' + i + '"' + clickAttr + '>'
+      html += '<div class="h-row-main">'
+      html += '<span class="h-icon">' + icon + '</span>'
+      html += '<div class="h-meta"><span class="h-mins">' + mins + ' min</span><span class="h-effort">' + mode + '</span></div>'
+      html += '<span class="h-status ' + statusClass + '">' + statusText + '</span>'
+      html += chevron
+      html += '</div>'
+      html += drawer
+      html += '</div>'
+    }
+
+    const totalSecs = s.sessions.reduce(function(acc, se) { return acc + (se.elapsed || 0) }, 0)
+    const totalMins = Math.floor(totalSecs / 60)
+    const totalHrs = totalMins >= 60 ? Math.floor(totalMins / 60) + 'h ' + (totalMins % 60) + 'm' : totalMins + 'm'
+    const moreCount = all.length - 2
+
+    html += '<div class="h-total-row"><span class="h-total-label">⏱️ total focused time</span><span class="h-total-val">' + totalHrs + '</span></div>'
+
+    if (!showAll && moreCount > 0) {
+      html += '<button class="h-show-more" onclick="renderHistoryStrip(true)">+ ' + moreCount + ' more session' + (moreCount > 1 ? 's' : '') + '</button>'
+    } else if (showAll && all.length > 2) {
+      html += '<button class="h-show-more" onclick="renderHistoryStrip(false)">show less</button>'
+    }
+
+    dots.innerHTML = html
+  }
+
+  function saveReflectionToLastSession() {
+    const selected = [...document.querySelectorAll('.chip.on')].map(c => c.textContent)
+    const q = document.getElementById('reflectQ').textContent
+    if (selected.length > 0 && s.sessions.length > 0) {
+      s.sessions[s.sessions.length - 1].reflection = { q, picks: selected }
+      localStorage.setItem('flo_sessions', JSON.stringify(s.sessions))
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  //  NEW SESSION
+  // ──────────────────────────────────────────────
+  function newSession() {
+    saveReflectionToLastSession()
+    document.getElementById('topbarTask').classList.remove('visible')
+    document.getElementById('taskInput').value = ''
+    document.getElementById('charHint').textContent = 'Be specific — avoid vague goals like "do work"'
+    document.getElementById('startBtn').disabled = true
+    renderHistoryStrip()
+    showScreen('setupScreen')
+  }
+
+  // ──────────────────────────────────────────────
+  //  HELPERS
+  // ──────────────────────────────────────────────
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+    document.getElementById(id).classList.add('active')
+  }
+  function showOverlay(id) { document.getElementById(id).classList.add('show') }
+  function hideOverlay(id) { document.getElementById(id).classList.remove('show') }
+  function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+  // ──────────────────────────────────────────────
+  //  CONFETTI
+  // ──────────────────────────────────────────────
+  function launchConfetti() {
+    const canvas = document.getElementById('confetti')
+    const ctx = canvas.getContext('2d')
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+
+    const palette = ['#4A7C59','#C9832A','#B8503A','#A3C4B0','#E8C99A','#F2EDE4']
+    const pieces = Array.from({length: 90}, () => ({
+      x: Math.random() * canvas.width,
+      y: -20 - Math.random() * 60,
+      vx: (Math.random() - 0.5) * 2.5,
+      vy: 2.5 + Math.random() * 2.5,
+      r: Math.random() * 7 + 3,
+      rot: Math.random() * 360,
+      rotV: (Math.random() - 0.5) * 8,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      shape: Math.random() > 0.5 ? 'rect' : 'circle',
+    }))
+
+    let frame = 0
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      pieces.forEach(p => {
+        p.x += p.vx + Math.sin(frame * 0.04 + p.vy) * 0.8
+        p.y += p.vy
+        p.rot += p.rotV
+        ctx.save()
+        ctx.translate(p.x, p.y)
+        ctx.rotate(p.rot * Math.PI / 180)
+        ctx.fillStyle = p.color
+        if (p.shape === 'rect') ctx.fillRect(-p.r/2, -p.r/4, p.r, p.r/2)
+        else { ctx.beginPath(); ctx.arc(0, 0, p.r/2, 0, Math.PI*2); ctx.fill() }
+        ctx.restore()
+      })
+      frame++
+      if (frame < 220) requestAnimationFrame(draw)
+      else ctx.clearRect(0, 0, canvas.width, canvas.height)
+    }
+    draw()
+  }
+
+  // ──────────────────────────────────────────────
+  //  KEYBOARD
+  // ──────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    const onTimer = document.getElementById('timerScreen').classList.contains('active')
+    const dumpOpen = document.getElementById('dumpPanel').classList.contains('open')
+    const checkinOpen = document.getElementById('checkinOverlay').classList.contains('show')
+    // Only intercept space when timer is active AND no panel/overlay is open AND focus is not in a text field
+    if (e.code === 'Space' && onTimer && !dumpOpen && !checkinOpen &&
+        !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
+      e.preventDefault()
+      togglePause()
+    }
+    if (e.code === 'Escape') {
+      closeDump()
+      hideOverlay('checkinOverlay')
+      hideOverlay('abandonOverlay')
+    }
+  })
+
+  // ──────────────────────────────────────────────
+  //  INIT
+  // ──────────────────────────────────────────────
+  renderHistoryStrip()
+  </script>
+</body>
+</html>
